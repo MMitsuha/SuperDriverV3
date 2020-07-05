@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Includes.h"
+#include "DataList.h"
 #include "../../Public.h"
 
 extern PDEVICE_OBJECT g_pCreateDevice;
@@ -9,27 +10,27 @@ extern UNICODE_STRING g_usSymName;
 
 /**********************************************************/
 
-extern LIST_ENTRY g_KillKeyList;
+extern DATA_LIST_ENTRY g_KillKeyList;
 
 //------------------------------
 
 extern PVOID g_FileCallbackHandle;
-extern LIST_ENTRY g_ProtDirList;
-extern LIST_ENTRY g_ProtFileList;
+extern DATA_LIST_ENTRY g_ProtDirList;
+extern DATA_LIST_ENTRY g_ProtFileList;
 
 //-------------------------------
 
 extern PVOID g_ProcKillCallbackHandle;
-extern LIST_ENTRY g_KillProcList;				//Â·¾¶
-extern LIST_ENTRY g_ProtProcList;				//PID
+extern DATA_LIST_ENTRY g_KillProcList;				//Â·¾¶
+extern DATA_LIST_ENTRY g_ProtProcList;				//PID
 extern BOOLEAN g_KillAllProc_Switch;
 
 //------------------------------------
 
 extern BOOLEAN g_KillAllSys_Switch;
-extern LIST_ENTRY g_KillSysList;
+extern DATA_LIST_ENTRY g_KillSysList;
 extern BOOLEAN g_KillAllDll_Switch;
-extern LIST_ENTRY g_KillDllList;
+extern DATA_LIST_ENTRY g_KillDllList;
 
 //---------------------------------------
 

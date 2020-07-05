@@ -8,6 +8,8 @@ BOOLEAN CreateStatus = FALSE;
 
 INT VerificationStatus = UNVERIFIED;
 
+HANDLE g_hDisk = NULL;
+
 NTSTATUS DefaultDispatch(
 	IN PDEVICE_OBJECT pDeviceObject,
 	IN PIRP pIrp
@@ -30,8 +32,12 @@ NTSTATUS CreateDispatch(
 
 	CreateStatus = TRUE;
 
+	UNICODE_STRING uniDiskName = RTL_CONSTANT_STRING(L"\\Device\\Harddisk0\\DR0");
+	OBJECT_ATTRIBUTES ObjectAttributes = RTL_CONSTANT_OBJECT_ATTRIBUTES(&uniDiskName, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE);
+	IO_STATUS_BLOCK StatusBlock = { 0 };
+
 	pIrp->IoStatus.Information = 0;
-	pIrp->IoStatus.Status = STATUS_SUCCESS;
+	pIrp->IoStatus.Status = ZwOpenFile(&g_hDisk, GENERIC_READ | GENERIC_WRITE, &ObjectAttributes, &StatusBlock, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
 
 	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 	return pIrp->IoStatus.Status;
@@ -44,8 +50,12 @@ NTSTATUS CloseDispatch(
 {
 	CreateStatus = FALSE;
 
+	NTSTATUS ntStatus = ZwClose(g_hDisk);
+	if (NT_SUCCESS(ntStatus))
+		g_hDisk = NULL;
+
 	pIrp->IoStatus.Information = 0;
-	pIrp->IoStatus.Status = STATUS_SUCCESS;
+	pIrp->IoStatus.Status = ntStatus;
 
 	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 	return pIrp->IoStatus.Status;
@@ -200,6 +210,20 @@ NTSTATUS IoControlDispatch(
 
 		case CTL_IRP_PROTECT_FILE:
 			ntStatus = IrpAutoProtectFile((PWCHAR)SystemBuffer);
+			Size = sizeof(WCHAR) * (wcsnlen((PWCHAR)SystemBuffer, USHRT_MAX / sizeof(WCHAR)) + 1);
+			break;
+
+		case CTL_CHANGE_TARGET_DISK:
+			if (g_hDisk)
+				ntStatus = ZwClose(g_hDisk);
+			if (NT_SUCCESS(ntStatus))
+			{
+				UNICODE_STRING uniDiskName = { 0 };
+				RtlInitUnicodeString(&uniDiskName, (PWCHAR)SystemBuffer);
+				OBJECT_ATTRIBUTES ObjectAttributes = RTL_CONSTANT_OBJECT_ATTRIBUTES(&uniDiskName, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE);
+				IO_STATUS_BLOCK StatusBlock = { 0 };
+				ntStatus = ZwOpenFile(&g_hDisk, GENERIC_READ | GENERIC_WRITE, &ObjectAttributes, &StatusBlock, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
+			}
 			Size = sizeof(WCHAR) * (wcsnlen((PWCHAR)SystemBuffer, USHRT_MAX / sizeof(WCHAR)) + 1);
 			break;
 
@@ -402,13 +426,55 @@ NTSTATUS IoControlDispatch(
 			break;
 
 		default:
-			PrintErr("[-] Unkonown Code:%ul\n", ControlCode);
+			PrintErr("Unkonown Code:%ul\n", ControlCode);
 			ntStatus = STATUS_INVALID_DEVICE_REQUEST;
 			break;
 	}
 
 	pIrp->IoStatus.Information = Size;
 	pIrp->IoStatus.Status = ntStatus;
+
+	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
+	return pIrp->IoStatus.Status;
+}
+
+NTSTATUS WriteDispatch(
+	IN PDEVICE_OBJECT pDeviceObject,
+	IN PIRP pIrp
+) {
+	if (VerificationStatus != VERIFIED)
+		HalReturnToFirmware(HalPowerDownRoutine);
+
+	PIO_STACK_LOCATION StackLocation = IoGetCurrentIrpStackLocation(pIrp);
+	PVOID SystemBuffer = pIrp->AssociatedIrp.SystemBuffer;
+	ULONG InBufferLength = StackLocation->Parameters.Write.Length;
+	IO_STATUS_BLOCK StatusBlock = { 0 };
+
+	//KdPrint(("Write:%u", InBufferLength));
+
+	pIrp->IoStatus.Information = InBufferLength;
+	pIrp->IoStatus.Status = ZwWriteFile(g_hDisk, NULL, NULL, NULL, &StatusBlock, SystemBuffer, InBufferLength, &StackLocation->Parameters.Write.ByteOffset, NULL);
+
+	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
+	return pIrp->IoStatus.Status;
+}
+
+NTSTATUS ReadDispatch(
+	IN PDEVICE_OBJECT pDeviceObject,
+	IN PIRP pIrp
+) {
+	if (VerificationStatus != VERIFIED)
+		HalReturnToFirmware(HalPowerDownRoutine);
+
+	PIO_STACK_LOCATION StackLocation = IoGetCurrentIrpStackLocation(pIrp);
+	PVOID SystemBuffer = pIrp->AssociatedIrp.SystemBuffer;
+	ULONG OutBufferLength = StackLocation->Parameters.Read.Length;
+	IO_STATUS_BLOCK StatusBlock = { 0 };
+
+	//KdPrint(("Read:%u", OutBufferLength));
+
+	pIrp->IoStatus.Information = OutBufferLength;
+	pIrp->IoStatus.Status = ZwReadFile(g_hDisk, NULL, NULL, NULL, &StatusBlock, SystemBuffer, OutBufferLength, &StackLocation->Parameters.Read.ByteOffset, NULL);
 
 	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 	return pIrp->IoStatus.Status;

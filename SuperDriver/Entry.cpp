@@ -69,7 +69,7 @@ VOID _HideDriver(
 
 #ifdef __cplusplus
 EXTERN_C_END
-#endif // _cplusplus
+#endif // __cplusplus
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text (INIT, DriverEntry)
@@ -475,6 +475,22 @@ NTSTATUS DriverEntry(
 	NTSTATUS ntStatus = STATUS_SUCCESS;
 	IoRegisterDriverReinitialization(pDriverObject, _HideDriver, NULL);
 
+	InitializeListHead(&g_KillKeyList.DataList);
+	InitializeListHead(&g_ProtDirList.DataList);
+	InitializeListHead(&g_ProtFileList.DataList);
+	InitializeListHead(&g_KillProcList.DataList);
+	InitializeListHead(&g_ProtProcList.DataList);
+	InitializeListHead(&g_KillSysList.DataList);
+	InitializeListHead(&g_KillDllList.DataList);
+
+	KeInitializeSpinLock(&g_KillKeyList.Lock);
+	KeInitializeSpinLock(&g_ProtDirList.Lock);
+	KeInitializeSpinLock(&g_ProtFileList.Lock);
+	KeInitializeSpinLock(&g_KillProcList.Lock);
+	KeInitializeSpinLock(&g_ProtProcList.Lock);
+	KeInitializeSpinLock(&g_KillSysList.Lock);
+	KeInitializeSpinLock(&g_KillDllList.Lock);
+
 	ntStatus = CreateDevice(pDriverObject);
 	if (NT_SUCCESS(ntStatus))
 		PrintSuc("CreateDevice Success!\n");
@@ -487,6 +503,8 @@ NTSTATUS DriverEntry(
 	pDriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = IoControlDispatch;
 	pDriverObject->MajorFunction[IRP_MJ_CREATE] = CreateDispatch;
 	pDriverObject->MajorFunction[IRP_MJ_CLOSE] = pDriverObject->MajorFunction[IRP_MJ_CLEANUP] = CloseDispatch;
+	pDriverObject->MajorFunction[IRP_MJ_WRITE] = WriteDispatch;
+	pDriverObject->MajorFunction[IRP_MJ_READ] = ReadDispatch;
 
 	PLDR_DATA_TABLE_ENTRY ldrDataTable;
 	ldrDataTable = (PLDR_DATA_TABLE_ENTRY)pDriverObject->DriverSection;
@@ -518,14 +536,6 @@ NTSTATUS DriverEntry(
 
 	if (*InitSafeBootMode > 0)
 		PrintIfm("WE ARE IN SAFEMODE!\n");
-
-	InitializeListHead(&g_KillKeyList);
-	InitializeListHead(&g_ProtDirList);
-	InitializeListHead(&g_ProtFileList);
-	InitializeListHead(&g_KillProcList);
-	InitializeListHead(&g_ProtProcList);
-	InitializeListHead(&g_KillSysList);
-	InitializeListHead(&g_KillDllList);
 
 	Mon_CreateFileMon(TRUE);
 	Mon_CreateMoudleMon(TRUE);

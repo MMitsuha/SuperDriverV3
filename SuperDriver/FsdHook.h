@@ -12,6 +12,12 @@ typedef NTSTATUS(*IRP_MJ_SERIES)
 	IN PIRP Irp
 	);
 
+typedef struct _IRP_COMPLETION_CONTEXT
+{
+	PIO_COMPLETION_ROUTINE CompletionRoutine;
+	PVOID Context;
+}IRP_COMPLETION_CONTEXT, * PIRP_COMPLETION_CONTEXT;
+
 //------------------------------------
 
 NTSTATUS FsdHook_HookTEST(

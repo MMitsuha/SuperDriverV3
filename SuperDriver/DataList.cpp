@@ -1,7 +1,7 @@
 #include "DataList.h"
 
 BOOLEAN List_Add(
-	PLIST_ENTRY pListEntry,
+	PDATA_LIST_ENTRY pListEntry,
 	LPVOID Buffer,
 	SIZE_T Size,
 	BOOLEAN IsTail
@@ -19,9 +19,9 @@ BOOLEAN List_Add(
 			pAddList->Size = Size;
 			memcpy(pAddList->Buffer, Buffer, Size);
 			if (IsTail)
-				InsertTailList(pListEntry, &pAddList->ListEntry);
+				ExInterlockedInsertTailList(&pListEntry->DataList, &pAddList->ListEntry, &pListEntry->Lock);
 			else
-				InsertHeadList(pListEntry, &pAddList->ListEntry);
+				ExInterlockedInsertHeadList(&pListEntry->DataList, &pAddList->ListEntry, &pListEntry->Lock);
 			bRet = TRUE;
 		}
 		else
@@ -33,17 +33,17 @@ BOOLEAN List_Add(
 }
 
 BOOLEAN List_Show(
-	CONST PLIST_ENTRY pListEntry
+	CONST PDATA_LIST_ENTRY pListEntry
 )
 {
 	BOOLEAN bRet = FALSE;
 	TRY_START
 
-		if (!IsListEmpty(pListEntry))
+		if (!IsListEmpty(&pListEntry->DataList))
 		{
-			PLIST_ENTRY pTarget = pListEntry->Flink;
+			PLIST_ENTRY pTarget = pListEntry->DataList.Flink;
 			PDATA_LIST pDataTarget = NULL;
-			while (pTarget != pListEntry)
+			while (pTarget != &pListEntry->DataList)
 			{
 				pDataTarget = CONTAINING_RECORD(pTarget, DATA_LIST, ListEntry);
 				PrintIfm("[LIST] DataPointer:%p ,DataSize:%I64u ,Data:", pDataTarget, pDataTarget->Size);
@@ -60,27 +60,33 @@ BOOLEAN List_Show(
 }
 
 BOOLEAN List_Check(
-	CONST PLIST_ENTRY pListEntry,
+	CONST PDATA_LIST_ENTRY pListEntry,
 	LPVOID Buffer,
-	SIZE_T Size,
-	BOOLEAN IsUserSize
+	SIZE_T Size/*,
+	BOOLEAN IsUserSize*/
 )
 {
 	BOOLEAN bRet = FALSE;
 	TRY_START
 
-		if (!IsListEmpty(pListEntry))
+		if (!IsListEmpty(&pListEntry->DataList))
 		{
 			SIZE_T _Size = 0;
-			PLIST_ENTRY pTarget = pListEntry->Flink;
+			PLIST_ENTRY pTarget = pListEntry->DataList.Flink;
 			PDATA_LIST pDataTarget = NULL;
-			while (pTarget != pListEntry)
+			while (pTarget != &pListEntry->DataList)
 			{
 				pDataTarget = CONTAINING_RECORD(pTarget, DATA_LIST, ListEntry);
+				/*
 				if (IsUserSize)
 					_Size = Size;
 				else
 					_Size = pDataTarget->Size;
+				*/
+				if (Size >= pDataTarget->Size)
+					_Size = pDataTarget->Size;
+				else
+					_Size = Size;
 				if (!memcmp(pDataTarget->Buffer, Buffer, _Size))
 				{
 					bRet = TRUE;
@@ -95,7 +101,7 @@ BOOLEAN List_Check(
 }
 
 BOOLEAN List_Delete(
-	PLIST_ENTRY pListEntry,
+	PDATA_LIST_ENTRY pListEntry,
 	LPVOID Buffer,
 	SIZE_T Size,
 	BOOLEAN IsUserSize
@@ -104,12 +110,12 @@ BOOLEAN List_Delete(
 	BOOLEAN bRet = FALSE;
 	TRY_START
 
-		if (!IsListEmpty(pListEntry))
+		if (!IsListEmpty(&pListEntry->DataList))
 		{
 			SIZE_T _Size = 0;
-			PLIST_ENTRY pTarget = pListEntry->Flink;
+			PLIST_ENTRY pTarget = pListEntry->DataList.Flink;
 			PDATA_LIST pDataTarget = NULL;
-			while (pTarget != pListEntry)
+			while (pTarget != &pListEntry->DataList)
 			{
 				pDataTarget = CONTAINING_RECORD(pTarget, DATA_LIST, ListEntry);
 				if (IsUserSize)
@@ -118,19 +124,21 @@ BOOLEAN List_Delete(
 					_Size = pDataTarget->Size;
 				if (!memcmp(pDataTarget->Buffer, Buffer, _Size))
 				{
-					bRet = RemoveEntryList(pTarget);
+					KIRQL OldIrql = { 0 };
+					KeAcquireSpinLock(&pListEntry->Lock, &OldIrql);
+					bRet = RemoveEntryList(&pListEntry->DataList);
+					KeReleaseSpinLock(&pListEntry->Lock, OldIrql);
 					break;
 				}
 				pTarget = pTarget->Flink;
 			}
 		}
-	return bRet;
 
 	TRY_END(bRet)
 }
 
 BOOLEAN List_DeleteAll(
-	PLIST_ENTRY pListEntry
+	PDATA_LIST_ENTRY pListEntry
 )
 {
 	BOOLEAN bRet = FALSE;
@@ -138,10 +146,10 @@ BOOLEAN List_DeleteAll(
 
 		PLIST_ENTRY pTarget = NULL;
 	PDATA_LIST pDataTarget = NULL;
-	while (!IsListEmpty(pListEntry))
+	while (!IsListEmpty(&pListEntry->DataList))
 	{
 		//从尾部删除一个元素
-		pTarget = RemoveHeadList(pListEntry); //返回删除结构中ListEntry的位置
+		pTarget = ExInterlockedRemoveHeadList(&pListEntry->DataList, &pListEntry->Lock); //返回删除结构中ListEntry的位置
 		pDataTarget = CONTAINING_RECORD(pTarget, DATA_LIST, ListEntry);
 		ExFreePoolWithTag(pDataTarget->Buffer, 'FBTI');
 		ExFreePoolWithTag(pDataTarget, 'TSIL');

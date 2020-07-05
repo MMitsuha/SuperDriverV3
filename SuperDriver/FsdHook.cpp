@@ -259,7 +259,9 @@ NTSTATUS CurrentKbdReadCompletion(
 				IoMarkIrpPending(pIrp);
 
 			if ((pIrp->StackCount > 1) && (Context != NULL))
+			{
 				return ((PIO_COMPLETION_ROUTINE)Context)(DeviceObject, pIrp, NULL);
+			}
 			else
 				return pIrp->IoStatus.Status;
 		}
@@ -283,6 +285,7 @@ NTSTATUS CurrentKbdReadDispatch(
 
 	//irpSp->Control = SL_INVOKE_ON_SUCCESS;
 	//保留原来的完成函数，如果有的话
+
 	irpSp->Context = irpSp->CompletionRoutine;
 	irpSp->CompletionRoutine = (PIO_COMPLETION_ROUTINE)CurrentKbdReadCompletion;
 
@@ -387,7 +390,7 @@ NTSTATUS CurrentNtfsDirectoryControlDispatch(
 			ntStatus = SeLocateProcessImageName(pEProc, &puniProcImageName);
 			if (!NT_SUCCESS(ntStatus))
 			{
-				PrintErr("[HOOK_SETIFM] SeLocateProcessImageName Fail! Errorcode:%X\n", ntStatus);
+				PrintErr("[HOOK_DIRCTL] SeLocateProcessImageName Fail! Errorcode:%X\n", ntStatus);
 				return STATUS_UNSUCCESSFUL;
 			}
 
@@ -473,7 +476,7 @@ NTSTATUS CurrentNtfsCreateDispatch(
 			ntStatus = SeLocateProcessImageName(pEProc, &puniProcImageName);
 			if (!NT_SUCCESS(ntStatus))
 			{
-				PrintErr("[HOOK_SETIFM] SeLocateProcessImageName Fail! Errorcode:%X\n", ntStatus);
+				PrintErr("[HOOK_CREATE] SeLocateProcessImageName Fail! Errorcode:%X\n", ntStatus);
 				return STATUS_UNSUCCESSFUL;
 			}
 

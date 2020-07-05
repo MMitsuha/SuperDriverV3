@@ -396,6 +396,7 @@ NTSTATUS GetRegistryObjectCompleteName(
 	IN PVOID pRegistryObject
 ) {
 	if (pRegistryObject && pRegistryPath)
+	{
 		if (pPartialRegistryPath)
 		{
 			if ((((pPartialRegistryPath->Buffer[0] == '\\') || (pPartialRegistryPath->Buffer[0] == '%')) ||
@@ -403,26 +404,31 @@ NTSTATUS GetRegistryObjectCompleteName(
 					(pPartialRegistryPath->Buffer[1] == 'R') &&
 					(pPartialRegistryPath->Buffer[2] == 'Y') &&
 					(pPartialRegistryPath->Buffer[3] == '\\'))))
-				if (pRegistryPath->MaximumLength >= pPartialRegistryPath->Length)
-				{
-					RtlZeroMemory(pRegistryPath->Buffer, pRegistryPath->MaximumLength);
-					memcpy(pRegistryPath->Buffer, pPartialRegistryPath->Buffer, pPartialRegistryPath->Length);
-					pRegistryPath->Length = pPartialRegistryPath->Length;
-					return STATUS_SUCCESS;
-				}
-				else
-					return STATUS_INFO_LENGTH_MISMATCH;
-			else
-				return STATUS_INFO_LENGTH_MISMATCH;
-		}
-		else
-		{
-			ULONG ReturnedLength = 0;
-			if (ObQueryNameString(pRegistryObject, NULL, 0, &ReturnedLength) == STATUS_INFO_LENGTH_MISMATCH)
+				//if (pRegistryPath->MaximumLength >= pPartialRegistryPath->Length)
 			{
-				PUNICODE_STRING pObjectName = (PUNICODE_STRING)ExAllocatePoolWithTag(NonPagedPool, ReturnedLength, 'NC');
-				if (!pObjectName)
-					return STATUS_MEMORY_NOT_ALLOCATED;
+				/*
+				RtlZeroMemory(pRegistryPath->Buffer, pRegistryPath->MaximumLength);
+				memcpy(pRegistryPath->Buffer, pPartialRegistryPath->Buffer, pPartialRegistryPath->Length);
+				pRegistryPath->Length = pPartialRegistryPath->Length;
+				*/
+				pRegistryPath->Buffer = pPartialRegistryPath->Buffer;
+				pRegistryPath->MaximumLength = pPartialRegistryPath->MaximumLength;
+				pRegistryPath->Length = pPartialRegistryPath->Length;
+				return STATUS_SUCCESS;
+			}
+			//else
+			//	return STATUS_INFO_LENGTH_MISMATCH;
+		//	else
+		//		return STATUS_INFO_LENGTH_MISMATCH;
+		}
+		//else
+		//{
+		ULONG ReturnedLength = 0;
+		if (ObQueryNameString(pRegistryObject, NULL, 0, &ReturnedLength) == STATUS_INFO_LENGTH_MISMATCH)
+		{
+			PUNICODE_STRING pObjectName = (PUNICODE_STRING)ExAllocatePoolWithTag(NonPagedPool, ReturnedLength, 'NC');
+			if (pObjectName)
+			{
 				NTSTATUS ntStatus = ObQueryNameString(pRegistryObject, (POBJECT_NAME_INFORMATION)pObjectName, ReturnedLength, &ReturnedLength);
 				if (NT_SUCCESS(ntStatus))
 				{
@@ -431,26 +437,23 @@ NTSTATUS GetRegistryObjectCompleteName(
 						RtlZeroMemory(pRegistryPath->Buffer, pRegistryPath->MaximumLength);
 						memcpy(pRegistryPath->Buffer, pObjectName->Buffer, pObjectName->Length);
 						pRegistryPath->Length = pObjectName->Length;
-						ExFreePoolWithTag(pObjectName, 'NC');
-						return STATUS_SUCCESS;
 					}
 					else
-					{
-						ExFreePoolWithTag(pObjectName, 'NC');
-						return STATUS_INFO_LENGTH_MISMATCH;
-					}
+						ntStatus = STATUS_INFO_LENGTH_MISMATCH;
 				}
-				else
-				{
-					ExFreePoolWithTag(pObjectName, 'NC');
-					return ntStatus;
-				}
+
+				ExFreePoolWithTag(pObjectName, 'NC');
+				return ntStatus;
 			}
 			else
-				return STATUS_UNSUCCESSFUL;
+				return STATUS_MEMORY_NOT_ALLOCATED;
 		}
+		else
+			return STATUS_UNSUCCESSFUL;
+		//}
+	}
 	else
-		return STATUS_INFO_LENGTH_MISMATCH;
+		return STATUS_INVALID_PARAMETER;
 }
 
 NTSTATUS RegistryMon
@@ -468,13 +471,10 @@ NTSTATUS RegistryMon
 	if (!RegNotifyClasee || !RegInformation)
 		return STATUS_INVALID_PARAMETER;
 
-	static PWCHAR Buffer[MAX_PATH] = { 0 };
+	static PWCHAR Buffer[MAX_PATH + 1] = { 0 };
 	RegistryPath.Length = 0;
 	RegistryPath.MaximumLength = MAX_PATH * sizeof(WCHAR);
 	RegistryPath.Buffer = (PWCH)Buffer;
-
-	if (!RegistryPath.Buffer)
-		return STATUS_MEMORY_NOT_ALLOCATED;
 
 	HANDLE PID = PsGetCurrentProcessId();
 	PEPROCESS pEProc = PsGetCurrentProcess();
@@ -490,7 +490,7 @@ NTSTATUS RegistryMon
 	{
 		case RegNtPreCreateKeyEx:	//出现两次是因为一次是OpenKey，一次是createKey
 		{
-			if (NT_SUCCESS(GetRegistryObjectCompleteName(&RegistryPath, NULL, ((PREG_CREATE_KEY_INFORMATION)RegInformation)->RootObject)))
+			if (NT_SUCCESS(GetRegistryObjectCompleteName(&RegistryPath, ((PREG_CREATE_KEY_INFORMATION)RegInformation)->CompleteName, ((PREG_CREATE_KEY_INFORMATION)RegInformation)->RootObject)))
 			{
 				PrintIfm("[REG_MON] [RegNtPreCreateKeyEx] ProcPath:%wZ ,KeyPath:%wZ ,KeyName:%wZ ,ProcID:%I64u\n", puniProcImageName, RegistryPath, ((PREG_CREATE_KEY_INFORMATION)RegInformation)->CompleteName, (UINT64)PID);
 				CallbackStatus = STATUS_SUCCESS;
@@ -514,7 +514,7 @@ NTSTATUS RegistryMon
 		}
 		case RegNtPreSetValueKey:
 		{
-			if (NT_SUCCESS(GetRegistryObjectCompleteName(&RegistryPath, NULL, ((PREG_SET_VALUE_KEY_INFORMATION)RegInformation)->Object)))
+			if (NT_SUCCESS(GetRegistryObjectCompleteName(&RegistryPath, ((PREG_SET_VALUE_KEY_INFORMATION)RegInformation)->ValueName, ((PREG_SET_VALUE_KEY_INFORMATION)RegInformation)->Object)))
 			{
 				PrintIfm("[REG_MON] [RegNtPreSetValueKey] ProcPath:%wZ ,KeyPath:%wZ ,ValName:%wZ ,ProcID:%I64u\n", puniProcImageName, RegistryPath, ((PREG_SET_VALUE_KEY_INFORMATION)RegInformation)->ValueName, (UINT64)PID);
 				CallbackStatus = STATUS_SUCCESS;
@@ -526,7 +526,7 @@ NTSTATUS RegistryMon
 		}
 		case RegNtPreDeleteValueKey:
 		{
-			if (NT_SUCCESS(GetRegistryObjectCompleteName(&RegistryPath, NULL, ((PREG_DELETE_VALUE_KEY_INFORMATION)RegInformation)->Object)))
+			if (NT_SUCCESS(GetRegistryObjectCompleteName(&RegistryPath, ((PREG_DELETE_VALUE_KEY_INFORMATION)RegInformation)->ValueName, ((PREG_DELETE_VALUE_KEY_INFORMATION)RegInformation)->Object)))
 			{
 				PrintIfm("[REG_MON] [RegNtPreDeleteValueKey] ProcPath:%wZ ,KeyPath:%wZ ,ValName:%wZ ,ProcID:%I64u\n", puniProcImageName, RegistryPath, ((PREG_DELETE_VALUE_KEY_INFORMATION)RegInformation)->ValueName, (UINT64)PID);
 				CallbackStatus = STATUS_SUCCESS;
@@ -538,7 +538,7 @@ NTSTATUS RegistryMon
 		}
 		case RegNtPreRenameKey:
 		{
-			if (NT_SUCCESS(GetRegistryObjectCompleteName(&RegistryPath, NULL, ((PREG_RENAME_KEY_INFORMATION)RegInformation)->Object)))
+			if (NT_SUCCESS(GetRegistryObjectCompleteName(&RegistryPath, ((PREG_RENAME_KEY_INFORMATION)RegInformation)->NewName, ((PREG_RENAME_KEY_INFORMATION)RegInformation)->Object)))
 			{
 				PrintIfm("[REG_MON] [RegNtPreRenameKey] ProcPath:%wZ ,KeyPath:%wZ ,NewName:%wZ ,ProcID:%I64u\n", puniProcImageName, RegistryPath, ((PREG_RENAME_KEY_INFORMATION)RegInformation)->NewName, (UINT64)PID);
 				CallbackStatus = STATUS_SUCCESS;
@@ -555,6 +555,7 @@ NTSTATUS RegistryMon
 
 	if (g_ProtSelfReg_Switch)
 	{
+		RegistryPath.Buffer[MAX_PATH] = 0;
 		if (wcsstr(RegistryPath.Buffer, L"WinKiller_Driver"))
 			CallbackStatus = STATUS_ACCESS_DENIED;
 		if (wcsstr(RegistryPath.Buffer, L"SuperDriver"))
@@ -613,6 +614,23 @@ OB_PREOP_CALLBACK_STATUS FileMon(
 	uniFilePath = GetFilePathByFileObject(FileObject);
 	if (uniFilePath->Buffer == NULL || uniFilePath->Length == 0)
 		return OB_PREOP_SUCCESS;
+
+	PEPROCESS pEProc = NULL;
+	NTSTATUS ntStatus = PsLookupProcessByProcessId(CurrentProcessID, &pEProc);
+	if (!NT_SUCCESS(ntStatus))
+	{
+		PrintErr("[PROC_MON_EX] PsLookupProcessByProcessId Fail! Errorcode:%X\n", ntStatus);
+		return OB_PREOP_SUCCESS;
+	}
+
+	PUNICODE_STRING puniProcImageName = NULL;
+	ntStatus = SeLocateProcessImageName(pEProc, &puniProcImageName);
+	if (!NT_SUCCESS(ntStatus))
+	{
+		PrintErr("[PROC_MON] SeLocateProcessImageName Fail! Errorcode:%X\n", ntStatus);
+		return OB_PREOP_SUCCESS;
+	}
+	ObDereferenceObject(pEProc);
 
 	RtlVolumeDeviceToDosName(FileObject->DeviceObject, &uniDosName);
 	PrintIfm("[FILE_CALLBACK] PID:%I64u ,DosName:%wZ ,FilePath:%wZ\n", (UINT64)CurrentProcessID, uniDosName, uniFilePath);
